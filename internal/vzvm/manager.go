@@ -841,15 +841,8 @@ func (m *Manager) lookup(name string) *record {
 	return m.vms[name]
 }
 
-// sockPath and statusPath use only the last element of name, so a name that
-// got past the API's validation stays inside RunDir.
-func (m *Manager) sockPath(name string) string {
-	return filepath.Join(m.cfg.RunDir, filepath.Base(name)+".sock")
-}
-
-func (m *Manager) statusPath(name string) string {
-	return filepath.Join(m.cfg.RunDir, filepath.Base(name)+".status")
-}
+func (m *Manager) sockPath(name string) string   { return filepath.Join(m.cfg.RunDir, name+".sock") }
+func (m *Manager) statusPath(name string) string { return filepath.Join(m.cfg.RunDir, name+".status") }
 
 func entryOf(p vm.VMCreateParams) metadata.VMEntry {
 	return metadata.VMEntry{

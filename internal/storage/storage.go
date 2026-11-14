@@ -10,14 +10,12 @@ import (
 
 // DiskPathFor and ISOPathFor define the disk and seed ISO naming convention in
 // one place.
-// DiskPathFor and ISOPathFor use only the last element of name, so a name
-// that got past the API's validation still lands inside the pool.
 func DiskPathFor(poolPath, name string) string {
-	return filepath.Join(poolPath, filepath.Base(name)+DiskExt)
+	return filepath.Join(poolPath, name+DiskExt)
 }
 
 func ISOPathFor(poolPath, name string) string {
-	return filepath.Join(poolPath, filepath.Base(name)+"-cidata.iso")
+	return filepath.Join(poolPath, name+"-cidata.iso")
 }
 
 // PathsFor returns the two files a domain definition names, or ok=false when
