@@ -28,6 +28,8 @@ RestrictSUIDSGID=yes
 RestrictRealtime=yes
 RestrictNamespaces=yes
 LockPersonality=yes
+# No UMask=: disks and seeds are created 0600 regardless, and a 077 umask
+# would make new pool directories untraversable for QEMU's user.
 # The only writable path: metadata.json, the image cache and the default
 # disk pool. A storage pool outside /var/lib/nano-cloud must be added here,
 # or VM creation fails with a read-only filesystem error.

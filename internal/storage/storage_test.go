@@ -1,6 +1,7 @@
 package storage_test
 
 import (
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -67,9 +68,84 @@ func TestAllocateDisk_SkipIfQemuImgMissing(t *testing.T) {
 	if err := storage.AllocateDisk(backingQcow2, destPath, 1); err != nil {
 		t.Fatalf("AllocateDisk() error: %v", err)
 	}
+	assertPrivate(t, destPath)
+	if err := storage.AllocateDisk(backingQcow2, destPath, 1); err == nil {
+		t.Error("AllocateDisk overwrote an existing disk")
+	}
 
-	if _, err := os.Stat(destPath); err != nil {
-		t.Errorf("AllocateDisk() produced no output file: %v", err)
+	copyPath := filepath.Join(dir, "clone.qcow2")
+	if err := storage.CopyDisk(destPath, copyPath); err != nil {
+		t.Fatalf("CopyDisk() error: %v", err)
+	}
+	assertPrivate(t, copyPath)
+
+	// The file made ahead of qemu-img must not outlive a failed create.
+	failed := filepath.Join(dir, "failed.qcow2")
+	if err := storage.AllocateDisk(filepath.Join(dir, "missing.qcow2"), failed, 1); err == nil {
+		t.Fatal("AllocateDisk succeeded without a backing file")
+	}
+	if _, err := os.Stat(failed); !os.IsNotExist(err) {
+		t.Errorf("a failed AllocateDisk left %s behind: %v", failed, err)
+	}
+}
+
+// assertPrivate fails unless path is a disk only its owner can read.
+func assertPrivate(t *testing.T, path string) {
+	t.Helper()
+	st, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := st.Mode().Perm(); got != storage.FileMode {
+		t.Errorf("%s has mode %04o, want %04o", filepath.Base(path), got, storage.FileMode)
+	}
+}
+
+func TestRestrict(t *testing.T) {
+	dir := t.TempDir()
+	for _, tc := range []struct {
+		mode, want  os.FileMode
+		wantChanged bool
+	}{
+		{0o644, 0o600, true},
+		{0o660, 0o600, true},
+		{0o600, 0o600, false},
+		{0o400, 0o400, false},
+	} {
+		p := filepath.Join(dir, fmt.Sprintf("disk-%04o", tc.mode))
+		if err := os.WriteFile(p, nil, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Chmod(p, tc.mode); err != nil {
+			t.Fatal(err)
+		}
+		changed, err := storage.Restrict(p)
+		if err != nil {
+			t.Fatalf("Restrict(%04o): %v", tc.mode, err)
+		}
+		st, _ := os.Stat(p)
+		if changed != tc.wantChanged || st.Mode().Perm() != tc.want {
+			t.Errorf("Restrict(%04o) = %v, mode %04o; want %v, %04o", tc.mode, changed, st.Mode().Perm(), tc.wantChanged, tc.want)
+		}
+	}
+
+	if changed, err := storage.Restrict(filepath.Join(dir, "missing")); changed || err != nil {
+		t.Errorf("Restrict(missing) = %v, %v; want false, nil", changed, err)
+	}
+	// A symlink in a pool is someone's deliberate choice; chmod would follow it.
+	target := filepath.Join(dir, "elsewhere")
+	if err := os.WriteFile(target, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(dir, "link")
+	if err := os.Symlink(target, link); err != nil {
+		t.Fatal(err)
+	}
+	if changed, err := storage.Restrict(link); changed || err != nil {
+		t.Errorf("Restrict(symlink) = %v, %v; want it left alone", changed, err)
+	}
+	if st, _ := os.Stat(target); st.Mode().Perm() != 0o644 {
+		t.Errorf("Restrict followed a symlink and changed its target to %04o", st.Mode().Perm())
 	}
 }
 
@@ -119,6 +195,7 @@ func TestDiskLifecycle_SkipIfQemuImgMissing(t *testing.T) {
 	if err := storage.CreateDisk(path, 2); err != nil {
 		t.Fatalf("CreateDisk: %v", err)
 	}
+	assertPrivate(t, path)
 
 	info, err := storage.InspectDisk(path)
 	if err != nil {

@@ -55,16 +55,48 @@ host.
   a key built into them, then each binary's SHA-256, before replacing
   anything.
 
+### Files on the host
+
+Other local accounts can't read what a VM holds.
+
+- VM disks and cloud-init seed ISOs are created mode 0600, owned by root.
+  That matters most for a service, whose seed carries its database
+  passwords, S3 keys or cluster token in plain text. `metadata.json` and
+  `templates.json`, which repeat a VM's cloud-init files and commands, are
+  0600 too.
+- The directories nano-cloud creates for them are 0711: the state directory
+  (`/var/lib/nano-cloud`, or `/Library/Application Support/nano-cloud` on a
+  Mac), its image cache and default pool, and a pool directory that Settings
+  creates. QEMU runs as its own user and opens a disk by its path, so other
+  accounts can still pass through, as with `/var/lib/libvirt/images`, but
+  can't list or read anything.
+- On Linux, libvirt hands each disk and seed to QEMU's user (`libvirt-qemu`
+  or `qemu`) while the VM runs, and gives a disk back to root when the VM
+  stops. libvirt never hands a seed back, since it's attached read-only, so a
+  seed stays with QEMU's user, still 0600. This is libvirt's
+  `dynamic_ownership`, on by default. If `/etc/libvirt/qemu.conf` turns it
+  off, QEMU can't open these files and VMs can't start; `nanocloud doctor`
+  reports it.
+- VMs created before this protection are tightened when the daemon starts:
+  their disks, seeds and, on a Mac, snapshots lose group and other access,
+  and `nanocloud install`, which `nanocloud update` runs, makes the
+  directories 0711. With `dynamic_ownership` off, the daemon leaves those
+  files as they are, so the VMs keep starting.
+- Cached cloud images stay readable by everyone (0644). They're the
+  distributions' public images, and on Linux every VM disk is an overlay
+  that QEMU reads one through.
+
 ### What it does not protect
 
-Anyone with root owns the box, and today so does any local account. VM disks
-and cloud-init seed ISOs are readable by every account on the host, and a
-service's seed carries its database passwords, S3 keys or cluster token in
-plain text. Disks aren't encrypted at rest. Run Nano Cloud on a host where
-every login belongs to someone you'd trust with root. Restricting these files
-to the daemon and QEMU is planned.
+Anyone with root owns the box. Run Nano Cloud on a host where every login
+belongs to someone you'd trust with root. Disks aren't encrypted at rest, so
+root, a backup of the pool or a stolen drive can read every VM.
 
 Also outside what it protects:
+
+- A storage pool in a directory you created yourself keeps that directory's
+  mode. The disks in it are 0600 all the same, but if the directory is
+  world-readable, anyone can list them, and so learn your VMs' names.
 
 - A guest isn't a sandbox from its own network. VMs on the NAT network can
   reach each other, and a bridged VM is on your LAN like any other machine.

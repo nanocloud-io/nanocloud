@@ -124,3 +124,33 @@ func TestBridgeCheck(t *testing.T) {
 		}
 	})
 }
+
+// The daemon leaves existing VMs' files readable when this says QEMU could not
+// open them otherwise, so a wrong "true" breaks VMs on upgrade.
+func TestPrivateDisksUsable(t *testing.T) {
+	for _, tc := range []struct {
+		name, conf string
+		want       bool
+	}{
+		{"no file", "", true},
+		{"defaults commented out", "#user = \"root\"\n#dynamic_ownership = 1\n", true},
+		{"relabelling on", "dynamic_ownership = 1\n", true},
+		{"relabelling off", "dynamic_ownership = 0\n", false},
+		{"off without spaces", "dynamic_ownership=0 # NFS pool\n", false},
+		{"off, QEMU as root", "user = \"root\"\ndynamic_ownership = 0\n", true},
+		{"off, QEMU as uid 0", "user = \"+0\"\ndynamic_ownership = 0\n", true},
+		{"off, QEMU as qemu", "user = \"qemu\"\ndynamic_ownership = 0\n", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "qemu.conf")
+			if tc.conf != "" {
+				if err := os.WriteFile(path, []byte(tc.conf), 0o600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if got := privateDisksUsable(readLibvirtConf(path)); got != tc.want {
+				t.Errorf("privateDisksUsable = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}

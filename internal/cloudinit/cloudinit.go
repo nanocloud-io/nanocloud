@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -76,14 +77,52 @@ func writeSeed(userData, metaData, destPath string) error {
 	}
 	defer os.RemoveAll(tmpDir) //nolint:errcheck // best-effort temp dir cleanup
 
-	if err := os.WriteFile(filepath.Join(tmpDir, "user-data"), []byte(userData), 0o600); err != nil {
+	srcDir := filepath.Join(tmpDir, "cidata")
+	if err := os.Mkdir(srcDir, 0o700); err != nil {
+		return fmt.Errorf("creating temp dir: %w", err)
+	}
+	if err := os.WriteFile(filepath.Join(srcDir, "user-data"), []byte(userData), 0o600); err != nil {
 		return fmt.Errorf("writing user-data: %w", err)
 	}
-	if err := os.WriteFile(filepath.Join(tmpDir, "meta-data"), []byte(metaData), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(srcDir, "meta-data"), []byte(metaData), 0o600); err != nil {
 		return fmt.Errorf("writing meta-data: %w", err)
 	}
 
-	return buildISO(tmpDir, destPath)
+	// The ISO tools create their output with the umask's mode, so the image is
+	// built in the private temp directory and only its bytes reach destPath.
+	iso := filepath.Join(tmpDir, "seed.iso")
+	if err := buildISO(srcDir, iso); err != nil {
+		return err
+	}
+	return installPrivate(iso, destPath)
+}
+
+// installPrivate copies src to path through a 0600 temp file beside it.
+func installPrivate(src, path string) error {
+	in, err := os.Open(src)
+	if err != nil {
+		return fmt.Errorf("cloudinit: %w", err)
+	}
+	defer in.Close() //nolint:errcheck // read-only
+
+	out, err := os.CreateTemp(filepath.Dir(path), "."+filepath.Base(path)+"-*")
+	if err != nil {
+		return fmt.Errorf("cloudinit: write seed: %w", err)
+	}
+	if _, err = io.Copy(out, in); err == nil {
+		err = out.Sync()
+	}
+	if cerr := out.Close(); err == nil {
+		err = cerr
+	}
+	if err == nil {
+		err = os.Rename(out.Name(), path)
+	}
+	if err != nil {
+		os.Remove(out.Name()) //nolint:errcheck // best-effort cleanup
+		return fmt.Errorf("cloudinit: write seed %s: %w", path, err)
+	}
+	return nil
 }
 
 // validateParams returns an error if required fields are missing or if a

@@ -63,7 +63,7 @@ func rawBase(imagePath string) (string, error) {
 	if st, serr := os.Stat(out); serr == nil && !st.ModTime().Before(src.ModTime()) {
 		return out, nil
 	}
-	if err = os.MkdirAll(filepath.Dir(out), 0o755); err != nil {
+	if err = os.MkdirAll(filepath.Dir(out), DirMode); err != nil {
 		return "", fmt.Errorf("storage: %w", err)
 	}
 	tmp := out + ".tmp"
@@ -119,7 +119,7 @@ func allocateRaw(backingFile, destPath string, sizeGB int) error {
 
 // createRaw makes a blank, sparse sizeGB disk at path.
 func createRaw(path string, sizeGB int) error {
-	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, FileMode)
 	if err != nil {
 		return fmt.Errorf("storage: create disk: %w", err)
 	}
@@ -169,8 +169,9 @@ func inspectRaw(path string) (DiskInfo, error) {
 // clone per snapshot.
 func SnapshotDir(diskPath string) string { return diskPath + ".snapshots" }
 
-// CloneOrCopy makes dst a copy of src: an instant copy-on-write clone where
-// the file system can (APFS), a sparse copy otherwise. dst must not exist.
+// CloneOrCopy makes dst a FileMode copy of src: an instant copy-on-write clone
+// where the file system can (APFS), a sparse copy otherwise. dst must not
+// exist.
 func CloneOrCopy(src, dst string) error { return cloneOrCopy(src, dst) }
 
 // SyncFile flushes a file's cached writes to disk so a following clone
@@ -184,16 +185,30 @@ func SyncFile(path string) error {
 	return f.Sync()
 }
 
+// cloneOrCopy builds the copy in a private directory and links it into place
+// once it is FileMode: a clone starts with src's mode, and a descriptor opened
+// before the chmod would see every later write. A link, unlike a rename,
+// refuses an existing dst.
 func cloneOrCopy(src, dst string) error {
-	err := clonefile(src, dst)
-	if err == nil {
-		return nil
-	}
-	if _, statErr := os.Lstat(dst); statErr == nil {
+	if _, err := os.Lstat(dst); err == nil {
 		return fmt.Errorf("storage: %s already exists", dst)
 	}
-	if err := sparseCopy(src, dst); err != nil {
-		return err
+	stage, err := os.MkdirTemp(filepath.Dir(dst), ".clone-")
+	if err != nil {
+		return fmt.Errorf("storage: %w", err)
+	}
+	defer os.RemoveAll(stage) //nolint:errcheck // best-effort; dst is a link of its own
+	tmp := filepath.Join(stage, filepath.Base(dst))
+	if err := clonefile(src, tmp); err != nil {
+		if err := sparseCopy(src, tmp); err != nil {
+			return err
+		}
+	}
+	if err := os.Chmod(tmp, FileMode); err != nil {
+		return fmt.Errorf("storage: %w", err)
+	}
+	if err := os.Link(tmp, dst); err != nil {
+		return fmt.Errorf("storage: %w", err)
 	}
 	return nil
 }
@@ -209,7 +224,7 @@ func sparseCopy(src, dst string) error {
 	if err != nil {
 		return fmt.Errorf("storage: %w", err)
 	}
-	out, err := os.OpenFile(dst, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
+	out, err := os.OpenFile(dst, os.O_WRONLY|os.O_CREATE|os.O_EXCL, FileMode)
 	if err != nil {
 		return fmt.Errorf("storage: %w", err)
 	}

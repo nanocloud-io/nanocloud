@@ -123,9 +123,15 @@ func TestRawBaseConcurrent(t *testing.T) {
 
 func TestAllocateRaw(t *testing.T) {
 	img := copyFixture(t)
-	disk := filepath.Join(t.TempDir(), "web.raw")
+	dir := t.TempDir()
+	disk := filepath.Join(dir, "web.raw")
 	if err := allocateRaw(img, disk, 1); err != nil {
 		t.Fatal(err)
+	}
+	// Cloned from a 0644 base, so this is the mode the copy was given.
+	assertMode(t, disk, FileMode)
+	if left, _ := filepath.Glob(filepath.Join(dir, ".clone-*")); len(left) > 0 {
+		t.Errorf("staging left behind: %v", left)
 	}
 	info, err := inspectRaw(disk)
 	if err != nil || info.VirtualSizeBytes != BytesPerGB || info.Snapshots != 0 {
@@ -159,6 +165,7 @@ func TestCreateResizeCopyRaw(t *testing.T) {
 	if err := createRaw(disk, 1); err != nil {
 		t.Fatal(err)
 	}
+	assertMode(t, disk, FileMode)
 	if err := createRaw(disk, 1); err == nil {
 		t.Error("createRaw overwrote an existing disk")
 	}
@@ -199,6 +206,18 @@ func TestCreateResizeCopyRaw(t *testing.T) {
 	}
 	if got := readAt(t, cp, 5<<20+7, 4); got != "DATA" {
 		t.Errorf("copy lost data: %q", got)
+	}
+	assertMode(t, cp, FileMode)
+}
+
+func assertMode(t *testing.T, path string, want os.FileMode) {
+	t.Helper()
+	st, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := st.Mode().Perm(); got != want {
+		t.Errorf("%s has mode %04o, want %04o", filepath.Base(path), got, want)
 	}
 }
 

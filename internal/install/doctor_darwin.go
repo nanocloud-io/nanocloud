@@ -33,6 +33,9 @@ func RunChecks(string) []Check {
 // NetworkPreflight always succeeds on macOS, where NAT needs no setup.
 func NetworkPreflight() error { return nil }
 
+// PrivateDisksUsable is true on macOS, where each VM's helper runs as root.
+func PrivateDisksUsable() bool { return true }
+
 func checkMacOSVersion() Check {
 	v, err := unix.Sysctl("kern.osproductversion")
 	if err != nil {

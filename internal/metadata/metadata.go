@@ -33,7 +33,7 @@ type Store struct {
 // New returns a Store backed by the file at path. The file need not exist yet;
 // it is created on the first write.
 func New(path string) *Store {
-	return &Store{file: atomicfile.New(path)}
+	return &Store{file: atomicfile.NewPrivate(path)}
 }
 
 // document is the current on-disk envelope.

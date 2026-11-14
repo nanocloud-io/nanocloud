@@ -2,11 +2,40 @@
 package storage
 
 import (
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"syscall"
 )
+
+// FileMode is the mode of every disk and seed. On Linux libvirt chowns each
+// to QEMU's user while its domain runs, so no other account needs to read it.
+const FileMode os.FileMode = 0o600
+
+// DirMode is for the directories nano-cloud creates for VM state. Others keep
+// the search bit QEMU needs to open a disk by path, as on /var/lib/libvirt/images.
+const DirMode os.FileMode = 0o711
+
+// Restrict takes group and other access off the regular file at path and
+// reports whether it changed anything. A missing path is not an error.
+func Restrict(path string) (bool, error) {
+	st, err := os.Lstat(path)
+	if errors.Is(err, fs.ErrNotExist) {
+		return false, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("storage: %w", err)
+	}
+	if !st.Mode().IsRegular() || st.Mode().Perm()&0o077 == 0 {
+		return false, nil
+	}
+	if err := os.Chmod(path, st.Mode().Perm()&^0o077); err != nil {
+		return false, fmt.Errorf("storage: %w", err)
+	}
+	return true, nil
+}
 
 // DiskPathFor and ISOPathFor define the disk and seed ISO naming convention in
 // one place.

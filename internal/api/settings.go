@@ -16,6 +16,7 @@ import (
 
 	"github.com/nanocloud-io/nanocloud/internal/config"
 	"github.com/nanocloud-io/nanocloud/internal/settings"
+	"github.com/nanocloud-io/nanocloud/internal/storage"
 )
 
 // FileSettings are the values only config.yaml can change, as the daemon
@@ -264,7 +265,7 @@ func hasPool(pools []config.StoragePool, name string) bool {
 // daemon write only below its data directory, so on Linux a refusal comes with
 // a drop-in allowing the path (install rewrites the unit itself).
 func checkWritable(dir string) error {
-	err := os.MkdirAll(dir, 0o755)
+	err := os.MkdirAll(dir, storage.DirMode)
 	if err == nil {
 		var f *os.File
 		if f, err = os.CreateTemp(dir, ".nanocloud-write-test-*"); err == nil {

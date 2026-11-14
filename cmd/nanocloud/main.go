@@ -32,6 +32,7 @@ import (
 	"github.com/nanocloud-io/nanocloud/internal/services"
 	"github.com/nanocloud-io/nanocloud/internal/settings"
 	"github.com/nanocloud-io/nanocloud/internal/stats"
+	"github.com/nanocloud-io/nanocloud/internal/storage"
 	"github.com/nanocloud-io/nanocloud/internal/system"
 	"github.com/nanocloud-io/nanocloud/internal/template"
 	"github.com/nanocloud-io/nanocloud/internal/tlscert"
@@ -135,6 +136,8 @@ func cmdServe(args []string) error {
 		// Any other failure only degrades the VM endpoints.
 		log.Printf("warning: could not migrate %s: %v", metadataPath, err)
 	}
+
+	restrictVMFiles(metaStore, install.PrivateDisksUsable())
 
 	// Only the VZ backend needs this; libvirt keeps its own definitions.
 	adoptSpecs(vmManager, metaStore)
@@ -379,6 +382,49 @@ func authStoreFor(cfgPath string) *auth.Store {
 		cfg = &config.Config{}
 	}
 	return auth.New(filepath.Join(filepath.Dir(metadataPathFor(cfg)), "auth.json"))
+}
+
+// restrictVMFiles takes group and other access off the files of VMs created
+// before disks and seeds were written private. When QEMU could not open such a
+// file (usable is false) it changes nothing, so those VMs keep starting.
+func restrictVMFiles(store *metadata.Store, usable bool) {
+	if !usable {
+		log.Printf("warning: libvirt does not hand VM disks to QEMU (dynamic_ownership is off), so new VMs cannot start and existing VMs' files keep their modes — see `sudo nanocloud doctor`")
+		return
+	}
+	entries, err := store.Read()
+	if err != nil {
+		log.Printf("warning: could not read VM specs to restrict their files: %v", err)
+		return
+	}
+	restricted := 0
+	for _, e := range entries {
+		disk, iso, ok := storage.PathsFor(e.PoolPath, e.ID)
+		if !ok {
+			continue
+		}
+		disks := []string{disk}
+		for _, d := range e.Disks {
+			disks = append(disks, d.Path)
+		}
+		paths := append([]string{iso}, disks...)
+		// On macOS each snapshot is a whole copy of its disk.
+		for _, d := range disks {
+			snaps, _ := filepath.Glob(filepath.Join(storage.SnapshotDir(d), "*"))
+			paths = append(paths, snaps...)
+		}
+		for _, p := range paths {
+			changed, err := storage.Restrict(p)
+			if err != nil {
+				log.Printf("warning: %v", err)
+			} else if changed {
+				restricted++
+			}
+		}
+	}
+	if restricted > 0 {
+		log.Printf("made %d disk, seed and snapshot files of existing VMs readable by their owner only", restricted)
+	}
 }
 
 func metadataPathFor(cfg *config.Config) string {

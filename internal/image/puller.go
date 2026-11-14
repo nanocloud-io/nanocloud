@@ -12,6 +12,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/nanocloud-io/nanocloud/internal/storage"
 )
 
 // Pull downloads entry into dir, verifies its checksum, and renames the temp
@@ -25,7 +27,7 @@ func Pull(ctx context.Context, entry CatalogEntry, dir string, progress chan<- i
 func PullWithResolver(ctx context.Context, entry CatalogEntry, dir string, progress chan<- int, resolver *DirIndexResolver) error {
 	defer close(progress)
 
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	if err := os.MkdirAll(dir, storage.DirMode); err != nil {
 		return fmt.Errorf("image: create cache dir: %w", err)
 	}
 

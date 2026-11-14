@@ -35,9 +35,19 @@
 <li>Updates are checked against a GPG key built into the binary and the installer, then by checksum, before anything is replaced.</li>
 </ul>
 
+<h2>Files on the machine</h2>
+<ul>
+<li>VM disks and cloud-init seeds are created readable by root only (mode 0600). That matters most for a service, whose seed holds its passwords in plain text. The VM specs that repeat a seed's files and commands are 0600 too.</li>
+<li>The directories Nano Cloud creates for them are 0711: QEMU runs as its own user and opens a disk by its path, so other accounts can pass through but can't list or read anything.</li>
+<li>On Linux, libvirt hands a VM's disks and seed to QEMU's user while it runs, and gives the disks back to root when it stops; a seed stays with QEMU's user, still 0600. That's libvirt's <code>dynamic_ownership</code>, on by default. If <code>/etc/libvirt/qemu.conf</code> turns it off, VMs can't start, and <code>nanocloud doctor</code> says so.</li>
+<li>VMs made by an older release are tightened the next time the daemon starts, unless <code>dynamic_ownership</code> is off, so that they keep starting.</li>
+<li>Downloaded cloud images stay readable by everyone: they're the distributions' public images.</li>
+</ul>
+
 <h2>What it does not protect</h2>
 <ul>
-<li>Anyone with root owns the machine, and today so does any account on it. VM disks and cloud-init seeds are readable by every local account, and a service's seed holds its passwords in plain text. Use a host where every login belongs to someone you'd trust with root. VM disks are not encrypted.</li>
+<li>Anyone with root owns the machine. Use a host where every login belongs to someone you'd trust with root. VM disks are not encrypted, so a backup of them or a stolen drive can be read.</li>
+<li>A storage pool in a directory you made yourself keeps that directory's mode. Its disks are 0600 all the same, but if anyone can list the directory, anyone can see your VMs' names.</li>
 <li>VMs on the NAT network can reach each other, and a bridged VM is on your network like any other machine.</li>
 <li>The VMs themselves. Their passwords, keys, open ports and updates are yours to manage.</li>
 <li>With <code>enabled: false</code> under <code>tls:</code> (for a reverse proxy), the password crosses the network in the clear unless something in front adds TLS.</li>

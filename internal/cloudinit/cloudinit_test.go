@@ -89,6 +89,10 @@ func TestBuild_ProducesISO(t *testing.T) {
 	if info.Size() == 0 {
 		t.Errorf("ISO file exists but is empty")
 	}
+	// A service's seed carries its secrets in plain text.
+	if got := info.Mode().Perm(); got != 0o600 {
+		t.Errorf("seed ISO has mode %04o, want 0600", got)
+	}
 }
 
 func TestGenerateUserData_ContainsFields(t *testing.T) {

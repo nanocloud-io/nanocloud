@@ -32,6 +32,7 @@ func RunChecks(libvirtURI string) []Check {
 		checkLibvirtd(),
 		checkDefaultNetwork(),
 		checkLibvirtConnection(libvirtURI),
+		checkDiskOwnership(),
 		checkBridge(),
 		checkOVMF(),
 		checkSWTPM(),
@@ -49,6 +50,50 @@ func NetworkPreflight() error {
 		return checkErr(c)
 	}
 	return nil
+}
+
+const qemuConfPath = "/etc/libvirt/qemu.conf"
+
+// PrivateDisksUsable reports whether QEMU can open a disk only root may read:
+// libvirt chowns each to QEMU's user while its domain runs unless qemu.conf
+// turns dynamic_ownership off, and QEMU running as root needs no chown.
+func PrivateDisksUsable() bool { return privateDisksUsable(readLibvirtConf(qemuConfPath)) }
+
+func privateDisksUsable(conf map[string]string) bool {
+	if conf["dynamic_ownership"] != "0" {
+		return true
+	}
+	return conf["user"] == "root" || conf["user"] == "+0"
+}
+
+// readLibvirtConf returns a libvirt config file's settings, unquoted. An
+// unreadable file has none, which means libvirt's defaults.
+func readLibvirtConf(path string) map[string]string {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil
+	}
+	conf := make(map[string]string)
+	for _, line := range strings.Split(string(data), "\n") {
+		line, _, _ = strings.Cut(line, "#")
+		if k, v, ok := strings.Cut(line, "="); ok {
+			conf[strings.TrimSpace(k)] = strings.Trim(strings.TrimSpace(v), `"`)
+		}
+	}
+	return conf
+}
+
+func checkDiskOwnership() Check {
+	const name = "disk ownership"
+	if PrivateDisksUsable() {
+		return Check{Name: name, OK: true, Required: true, Message: "libvirt hands each VM's disks to QEMU while it runs"}
+	}
+	return Check{
+		Name:     name,
+		Required: true,
+		Message:  "dynamic_ownership is off in " + qemuConfPath + ", so QEMU cannot open VM disks and seeds, which only root may read",
+		Remedy:   "set dynamic_ownership = 1 in " + qemuConfPath + ", then: sudo systemctl restart libvirtd",
+	}
 }
 
 func checkErr(c Check) error {

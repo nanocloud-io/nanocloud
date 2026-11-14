@@ -187,10 +187,11 @@ func Run(unitBytes []byte) error {
 		return err
 	}
 
-	for _, dir := range []string{cfgDir, dataDir, imagesDir, vmDisksDir} {
-		if err := os.MkdirAll(dir, 0o755); err != nil {
-			return fmt.Errorf("mkdir %s: %w", dir, err)
-		}
+	if err := os.MkdirAll(cfgDir, 0o755); err != nil {
+		return fmt.Errorf("mkdir %s: %w", cfgDir, err)
+	}
+	if err := makeStateDirs(dataDir, imagesDir, vmDisksDir); err != nil {
+		return err
 	}
 
 	if err := writeFileIfAbsent(cfgPath, []byte(defaultConfig), 0o644); err != nil {

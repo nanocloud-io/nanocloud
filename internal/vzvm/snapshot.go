@@ -120,7 +120,7 @@ func (m *Manager) CreateSnapshot(vmName, snapName, description string) error {
 		}
 	}
 	capture := func(src, dst string) error {
-		if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
+		if err := os.MkdirAll(filepath.Dir(dst), storage.DirMode); err != nil {
 			return err
 		}
 		if err := storage.SyncFile(src); err != nil {

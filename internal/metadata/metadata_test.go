@@ -5,6 +5,7 @@ package metadata_test
 import (
 	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"reflect"
 	"sync"
@@ -217,5 +218,20 @@ func TestStore_CreatesParentDirectory(t *testing.T) {
 	}
 	if r, ok := got.DesiredRunning(); !ok || !r {
 		t.Errorf("DesiredRunning() = (%v, %v); want (true, true)", r, ok)
+	}
+}
+
+// A VM's spec repeats the write_files and runcmd its seed carries.
+func TestStore_FileIsPrivate(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "metadata.json")
+	if err := metadata.New(path).Upsert("vm1", func(e *metadata.VMEntry) { e.ID = "vm1" }); err != nil {
+		t.Fatalf("Upsert: %v", err)
+	}
+	st, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := st.Mode().Perm(); got != 0o600 {
+		t.Errorf("metadata.json has mode %04o, want 0600", got)
 	}
 }
