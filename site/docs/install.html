@@ -63,6 +63,7 @@ sudo ./nanocloud-linux-amd64 install</code></pre>
 <tr><td>VMs, images, state</td><td><code>/var/lib/nano-cloud</code></td><td><code>/Library/Application Support/nano-cloud</code></td></tr>
 <tr><td>Service</td><td>systemd <code>nanocloud</code></td><td>launchd <code>io.nanocloud.nanocloud</code></td></tr>
 </table>
+<p>The service runs <code>/usr/local/bin/nanocloud</code> as root, so install and update stop if anyone but root could change it or a directory above it, and print the path and the command that fixes it. On Linux a directory the <code>staff</code> group can write is accepted, as in Debian's layout for <code>/usr/local</code>: Debian already treats <code>staff</code> as equivalent to root.</p>
 
 <h2>Lost the password</h2>
 <pre><code>sudo nanocloud passwd</code></pre>

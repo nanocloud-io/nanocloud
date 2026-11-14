@@ -80,12 +80,22 @@ check_macos() {
     [ "$major" -ge 13 ] 2>/dev/null || die "nanocloud needs macOS 13 or later; detected: $(sw_vers -productVersion)"
 }
 
-# check_root_only: launchd runs the binary as root, so anyone who can change
-# it, or rename a directory above it, gets root at the next restart. The fix
-# is printed, not applied, because Homebrew may own /usr/local/bin. stat -L
-# doesn't follow a symlink's parents, so a directory's resolved path is walked
-# too. `nanocloud install` runs the same check.
+# check_root_only: the service runs the binary as root, so anyone who can
+# change it, or rename a directory above it, gets root at the next restart.
+# The fix is printed, not applied, because Homebrew may own /usr/local/bin.
+# stat -L doesn't follow a symlink's parents, so a directory's resolved path
+# is walked too. `nanocloud install` runs the same check.
 check_root_only() {
+    if [ "$(uname -s)" = Darwin ]; then
+        # staff is every account's primary group on macOS, so it is not trusted.
+        service_manager=launchd root_group=wheel staff_gid=
+    else
+        # Debian lays out /usr/local as root:staff 2775 and documents staff as
+        # able to modify it, so its members can already replace binaries on
+        # root's PATH. An unresolved staff group trusts no group.
+        service_manager=systemd root_group=root
+        staff_gid=$(getent group staff 2>/dev/null | cut -d: -f3)
+    fi
     root_only_chain "$1"
     if [ -d "$1" ]; then
         resolved=$(cd -P "$1" && pwd -P) || die "cannot resolve $1"
@@ -96,20 +106,24 @@ check_root_only() {
 }
 
 # root_only_chain refuses $1 or any directory above it that is not owned by
-# root or is writable by group or others. A sticky bit does not excuse one.
-# A path that does not exist yet is skipped: the installer creates it as root.
+# root, is writable by others, or is writable by a group other than staff on
+# Linux. A sticky bit does not excuse one. A path that does not exist yet is
+# skipped: the installer creates it as root.
 root_only_chain() {
     p="$1"
     while :; do
         if [ -e "$p" ]; then
-            # Not plain stat: GNU coreutils, often first in PATH, reads -f differently.
-            st=$(/usr/bin/stat -L -f '%u %Lp' "$p") || die "cannot stat $p"
-            uid=${st% *}
-            mode=$(printf '%03o' "0${st#* }")
+            st=$(owner_of "$p") || die "cannot stat $p"
+            uid=${st%% *}
+            gid=${st#* }
+            gid=${gid% *}
+            mode=$(printf '%03o' $((0${st##* } & 0777)))
             if [ "$uid" -ne 0 ]; then
                 unsafe_path "$p" "is owned by uid $uid, not root"
-            elif [ $((0$mode & 022)) -ne 0 ]; then
-                unsafe_path "$p" "is writable by group or others (mode $mode)"
+            elif [ $((0$mode & 002)) -ne 0 ]; then
+                unsafe_path "$p" "is writable by others (mode $mode)"
+            elif [ $((0$mode & 020)) -ne 0 ] && [ "$gid" != "$staff_gid" ]; then
+                unsafe_path "$p" "is writable by group $gid (mode $mode)"
             fi
         fi
         if [ "$p" = / ]; then
@@ -119,11 +133,25 @@ root_only_chain() {
     done
 }
 
+# owner_of prints "uid gid mode" for $1, following symlinks.
+owner_of() {
+    if [ "$(uname -s)" = Darwin ]; then
+        # Not plain stat: GNU coreutils, often first in PATH, reads -f differently.
+        /usr/bin/stat -L -f '%u %g %Lp' "$1"
+    else
+        stat -L -c '%u %g %a' "$1"
+    fi
+}
+
 unsafe_path() {
+    staff_note=
+    if [ "$service_manager" = systemd ]; then
+        staff_note=" Group write is accepted only for staff, which Debian treats as equivalent to root."
+    fi
     die "$1 $2.
-launchd runs ${INSTALL_DIR}/${BINARY_NAME} as root, so anyone who can modify $1 can swap in their own binary and gain root at the next restart.
+${service_manager} runs ${INSTALL_DIR}/${BINARY_NAME} as root, so anyone who can modify $1 can swap in their own binary and gain root at the next restart.${staff_note}
 Fix it, then run the install again:
-  sudo chown root:wheel $1 && sudo chmod 755 $1"
+  sudo chown root:${root_group} $1 && sudo chmod 755 $1"
 }
 
 check_os() {
@@ -354,6 +382,7 @@ do_install() {
         check_root_only "$INSTALL_DIR"
     else
         check_os
+        check_root_only "$INSTALL_DIR"
         check_kvm
         check_host_deps
     fi
@@ -370,10 +399,8 @@ do_install() {
     binary="${BINARY_NAME}-${os}-${arch}"
     mkdir -p "$INSTALL_DIR"
     install -m 0755 "${tmpdir}/${binary}" "${INSTALL_DIR}/${BINARY_NAME}"
-    if [ "$os" = "darwin" ]; then
-        # Again for what mkdir and install just created, before it runs as root.
-        check_root_only "${INSTALL_DIR}/${BINARY_NAME}"
-    fi
+    # Again for what mkdir and install just created, before it runs as root.
+    check_root_only "${INSTALL_DIR}/${BINARY_NAME}"
     info "Binary installed to ${INSTALL_DIR}/${BINARY_NAME}"
 
     # install prints where to open the UI and the certificate's fingerprint.

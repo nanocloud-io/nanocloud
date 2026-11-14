@@ -5,10 +5,8 @@ package install
 
 import (
 	"bytes"
-	"errors"
 	"fmt"
 	"io"
-	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -34,6 +32,11 @@ const (
 	// defaultPort mirrors the server's default, for the post-install health
 	// probe when config.yaml does not pin a port.
 	defaultPort = 8080
+
+	serviceManager = "launchd"
+	rootGroup      = "wheel"
+	// staff is every account's primary group on macOS, so it is not trusted.
+	trustStaff = false
 )
 
 // virtualizationEntitlement is required by every Virtualization.framework
@@ -268,81 +271,6 @@ func copyBinary() error {
 		return fmt.Errorf("install binary to %s: %w", binDst, err)
 	}
 	return nil
-}
-
-// ownerFS is the part of the filesystem checkRootOnly reads, so it can be
-// tested without root.
-type ownerFS interface {
-	// owner reports path's owner and permission bits, following symlinks.
-	owner(path string) (uid uint32, perm fs.FileMode, err error)
-	resolve(path string) (string, error)
-}
-
-type hostFS struct{}
-
-func (hostFS) owner(path string) (uint32, fs.FileMode, error) {
-	fi, err := os.Stat(path)
-	if err != nil {
-		return 0, 0, err
-	}
-	st, ok := fi.Sys().(*syscall.Stat_t)
-	if !ok {
-		return 0, 0, fmt.Errorf("stat %s: no owner reported", path)
-	}
-	return st.Uid, fi.Mode().Perm(), nil
-}
-
-func (hostFS) resolve(path string) (string, error) { return filepath.EvalSymlinks(path) }
-
-// checkRootOnly refuses path unless only root can change what it names. The
-// symlink-resolved path is walked too, since its parent directories differ.
-func checkRootOnly(path string, fsys ownerFS) error {
-	if err := rootOnlyChain(path, fsys); err != nil {
-		return err
-	}
-	resolved, err := fsys.resolve(path)
-	switch {
-	case errors.Is(err, fs.ErrNotExist):
-		return nil
-	case err != nil:
-		return fmt.Errorf("resolve %s: %w", path, err)
-	case resolved == path:
-		return nil
-	}
-	return rootOnlyChain(resolved, fsys)
-}
-
-// rootOnlyChain returns an error naming the first of path and its parents that
-// is not owned by root or is writable by group or others. A sticky bit does not
-// excuse a writable directory: others could still plant a file under a name
-// root writes next, such as the .prev copy. Missing components are skipped,
-// since install creates them as root.
-func rootOnlyChain(path string, fsys ownerFS) error {
-	for p := filepath.Clean(path); ; p = filepath.Dir(p) {
-		uid, perm, err := fsys.owner(p)
-		switch {
-		case errors.Is(err, fs.ErrNotExist):
-		case err != nil:
-			return fmt.Errorf("check owner of %s: %w", p, err)
-		case uid != 0:
-			return unsafePathError(p, fmt.Sprintf("is owned by uid %d, not root", uid))
-		case perm&0o022 != 0:
-			return unsafePathError(p, fmt.Sprintf("is writable by group or others (mode %03o)", uint32(perm)))
-		}
-		if p == filepath.Dir(p) {
-			return nil
-		}
-	}
-}
-
-// unsafePathError gives the fix rather than applying it, because Homebrew may
-// own /usr/local/bin and re-owning it breaks brew.
-func unsafePathError(path, problem string) error {
-	return fmt.Errorf("%s %s.\n"+
-		"launchd runs %s as root, so anyone who can modify %s can swap in their own binary and gain root at the next restart.\n"+
-		"Fix it, then run the install again:\n"+
-		"  sudo chown root:wheel %s && sudo chmod 755 %s",
-		path, problem, binDst, path, path, path)
 }
 
 // hasEntitlement reports whether the binary at path is signed with the

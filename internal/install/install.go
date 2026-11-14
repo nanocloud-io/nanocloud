@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -26,6 +27,13 @@ const (
 	// defaultPort mirrors the server's default, for the post-install health
 	// probe when config.yaml does not pin a port.
 	defaultPort = 8080
+
+	serviceManager = "systemd"
+	rootGroup      = "root"
+	// trustStaff accepts a directory that group staff can write. Debian lays
+	// out /usr/local as root:staff 2775 and documents staff as able to modify
+	// it, so its members can already replace binaries on root's PATH.
+	trustStaff = true
 )
 
 // defaultConfig is the minimal config written on first install.
@@ -159,6 +167,13 @@ func Run(unitBytes []byte) error {
 		return fmt.Errorf("install must be run as root (try: sudo nanocloud install)")
 	}
 
+	// systemd runs binDst as root, so anyone who can change it or rename a
+	// directory above it gets root. Directories are checked before anything
+	// else so a refusal leaves the host unchanged.
+	if err := checkRootOnly(filepath.Dir(binDst), hostFS{}); err != nil {
+		return err
+	}
+
 	if err := installHostDeps(); err != nil {
 		return err
 	}
@@ -166,6 +181,9 @@ func Run(unitBytes []byte) error {
 	setupLibvirt()
 
 	if err := copyBinary(); err != nil {
+		return err
+	}
+	if err := checkRootOnly(binDst, hostFS{}); err != nil {
 		return err
 	}
 

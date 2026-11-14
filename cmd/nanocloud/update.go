@@ -67,6 +67,12 @@ func cmdUpdate(args []string) {
 // daemon does not come back on it. It returns rather than exiting so the
 // download directory is always removed.
 func installRelease(ctx context.Context, tag string) error {
+	// Checked here, not left to the new binary's install, because the download
+	// and the .prev copy that rollback runs as root are written first.
+	if err := install.CheckBinPath(); err != nil {
+		return err
+	}
+
 	// The download sits beside the installed binary: /tmp may be noexec, and
 	// the new binary has to run to install itself.
 	work, err := os.MkdirTemp(filepath.Dir(install.BinPath), ".nanocloud-update-")
