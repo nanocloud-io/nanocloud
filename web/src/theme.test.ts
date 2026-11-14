@@ -9,6 +9,7 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.restoreAllMocks();
+  vi.unstubAllGlobals();
 });
 
 describe('storedTheme', () => {
@@ -57,8 +58,9 @@ describe('useTheme', () => {
   });
 
   it('follows the operating system when told to', () => {
-    vi.spyOn(window, 'matchMedia').mockImplementation(
-      q => ({ matches: q === '(prefers-color-scheme: light)', addEventListener: () => {} }) as unknown as MediaQueryList,
+    vi.stubGlobal(
+      'matchMedia',
+      (q: string) => ({ matches: q === '(prefers-color-scheme: light)', addEventListener: () => {} }) as unknown as MediaQueryList,
     );
     const { result } = renderHook(() => useThemeChoice());
     act(() => result.current[1]('system'));
