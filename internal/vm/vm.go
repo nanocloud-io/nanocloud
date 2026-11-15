@@ -244,6 +244,10 @@ var ErrIncompleteSpec = errors.New("vm: spec does not describe a complete machin
 // ErrNotRunning means a stop found the domain already off.
 var ErrNotRunning = errors.New("vm: domain is not running")
 
+// ErrVMNotFound means no domain has the name a call asked for. It is returned
+// wrapped, with the name, and internal/api maps it to 404.
+var ErrVMNotFound = errors.New("no such VM")
+
 // stopIsNoOp reports whether d is already inactive. It reads the state because
 // the drivers disagree on the stop error's code (VIR_ERR_OPERATION_INVALID on
 // qemu:///system, VIR_ERR_INTERNAL_ERROR on test:///default).
@@ -751,6 +755,9 @@ func (m *Manager) lookup(name, why string) (*libvirt.Libvirt, libvirt.Domain, er
 	}
 	d, err := lv.DomainLookupByName(name)
 	if err != nil {
+		if libvirt.IsNotFound(err) {
+			return nil, libvirt.Domain{}, fmt.Errorf("vm: lookup %q%s: %w", name, why, ErrVMNotFound)
+		}
 		return nil, libvirt.Domain{}, fmt.Errorf("vm: lookup %q%s: %w", name, why, err)
 	}
 	return lv, d, nil

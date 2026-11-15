@@ -141,3 +141,7 @@ func CapabilitiesOf(b Backend) Capabilities {
 // ErrUnsupported means the backend cannot do what was asked at all, as
 // opposed to failing at it. The API maps it to 501 Not Implemented.
 var ErrUnsupported = errors.New("not supported by this hypervisor backend")
+
+// ErrVMNotFound means no VM has the name that was asked for. Both backends
+// wrap it, with the name, and the API maps it to 404 Not Found.
+var ErrVMNotFound = vm.ErrVMNotFound

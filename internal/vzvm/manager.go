@@ -364,7 +364,7 @@ func (m *Manager) Delete(name string) error {
 func (m *Manager) Start(name string) error {
 	r := m.lookup(name)
 	if r == nil {
-		return fmt.Errorf("vzvm: start %q: no such VM", name)
+		return fmt.Errorf("vzvm: start %q: %w", name, hypervisor.ErrVMNotFound)
 	}
 	r.op.Lock()
 	defer r.op.Unlock()
@@ -589,7 +589,7 @@ func (m *Manager) running(name, action string) (*run, error) {
 	defer m.mu.Unlock()
 	r, ok := m.vms[name]
 	if !ok {
-		return nil, fmt.Errorf("vzvm: %s %q: no such VM", action, name)
+		return nil, fmt.Errorf("vzvm: %s %q: %w", action, name, hypervisor.ErrVMNotFound)
 	}
 	if r.run == nil {
 		return nil, fmt.Errorf("vzvm: %s %q: %w", action, name, vm.ErrNotRunning)
@@ -675,7 +675,7 @@ func (m *Manager) Get(name string) (*vm.VM, error) {
 	defer m.mu.Unlock()
 	r, ok := m.vms[name]
 	if !ok {
-		return nil, fmt.Errorf("vzvm: lookup %q: no such VM", name)
+		return nil, fmt.Errorf("vzvm: lookup %q: %w", name, hypervisor.ErrVMNotFound)
 	}
 	v := infoLocked(name, r)
 	return &v, nil
@@ -693,7 +693,7 @@ func (m *Manager) Identity(name string) (vm.DomainIdentity, error) {
 	defer m.mu.Unlock()
 	r, ok := m.vms[name]
 	if !ok {
-		return vm.DomainIdentity{}, fmt.Errorf("vzvm: lookup %q to read its identity: no such VM", name)
+		return vm.DomainIdentity{}, fmt.Errorf("vzvm: lookup %q to read its identity: %w", name, hypervisor.ErrVMNotFound)
 	}
 	return vm.DomainIdentity{UUID: r.uuid, MAC: r.mac.String()}, nil
 }
@@ -705,7 +705,7 @@ func (m *Manager) ActiveHardware(name string) (vm.ActiveHardware, error) {
 	defer m.mu.Unlock()
 	r, ok := m.vms[name]
 	if !ok {
-		return vm.ActiveHardware{}, fmt.Errorf("vzvm: lookup %q: no such VM", name)
+		return vm.ActiveHardware{}, fmt.Errorf("vzvm: lookup %q: %w", name, hypervisor.ErrVMNotFound)
 	}
 	e := r.entry
 	if r.run != nil {

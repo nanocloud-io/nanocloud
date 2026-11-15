@@ -249,7 +249,7 @@ func TestHandleVMConsole_UnknownVM(t *testing.T) {
 }
 
 // TestHandleSnapshotRestore_UnknownVM checks that restoring a snapshot on a
-// missing VM is a 500 naming the operation.
+// missing VM is a 404 naming the operation.
 func TestHandleSnapshotRestore_UnknownVM(t *testing.T) {
 	m := libvirtManager(t)
 
@@ -262,12 +262,47 @@ func TestHandleSnapshotRestore_UnknownVM(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/vms/does-not-exist-xyz/snapshots/snap1/restore", nil)
 	srv.ServeHTTP(rec, req)
 
-	if rec.Code != http.StatusInternalServerError {
+	if rec.Code != http.StatusNotFound {
 		t.Errorf("POST /vms/does-not-exist-xyz/snapshots/snap1/restore: status = %d, want %d",
-			rec.Code, http.StatusInternalServerError)
+			rec.Code, http.StatusNotFound)
 	}
 	if !strings.Contains(rec.Body.String(), "restore snapshot") {
 		t.Errorf("response body = %q; want it to mention %q", rec.Body.String(), "restore snapshot")
+	}
+}
+
+// TestHandleVMStartStop_UnknownVMIsNotFound checks that starting or stopping a
+// name no domain has is the caller's mistake: a 404 naming the VM, not a 500
+// carrying libvirt's own error.
+func TestHandleVMStartStop_UnknownVMIsNotFound(t *testing.T) {
+	m := libvirtManager(t)
+
+	cfg := &config.Config{
+		StoragePools: []config.StoragePool{{Name: "default", Path: os.TempDir(), Default: true}},
+	}
+	srv := api.New(api.Deps{WebFS: minimalWebFS(), Cfg: cfg, VMManager: m, MetaStore: nil, ImgManager: nil, NetManager: nil, SysReader: nil})
+
+	tests := []struct {
+		name string
+		url  string
+	}{
+		{"start", "/vms/does-not-exist-xyz/start"},
+		{"stop", "/vms/does-not-exist-xyz/stop"},
+		{"force stop", "/vms/does-not-exist-xyz/stop?force=true"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			rec := httptest.NewRecorder()
+			srv.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, tc.url, nil))
+
+			if rec.Code != http.StatusNotFound {
+				t.Fatalf("POST %s: status = %d, want %d (body: %s)",
+					tc.url, rec.Code, http.StatusNotFound, rec.Body.String())
+			}
+			if !strings.Contains(rec.Body.String(), "does-not-exist-xyz") {
+				t.Errorf("POST %s: body = %q; want it to name the VM", tc.url, rec.Body.String())
+			}
+		})
 	}
 }
 
@@ -444,7 +479,7 @@ func TestHandleVMCreate_ConflictsWithExistingDisk(t *testing.T) {
 }
 
 // TestHandleVMStop_ForceUsesDestroy checks that only ?force=true takes the
-// force-off path. Both paths fail alike for an unknown domain, so the error
+// force-off path. Both paths are a 404 for an unknown domain, so the error
 // message is what tells them apart.
 func TestHandleVMStop_ForceUsesDestroy(t *testing.T) {
 	m := libvirtManager(t)
@@ -472,8 +507,8 @@ func TestHandleVMStop_ForceUsesDestroy(t *testing.T) {
 			req := httptest.NewRequest(http.MethodPost, tc.url, nil)
 			srv.ServeHTTP(rec, req)
 
-			if rec.Code != http.StatusInternalServerError {
-				t.Fatalf("POST %s: status = %d, want %d", tc.url, rec.Code, http.StatusInternalServerError)
+			if rec.Code != http.StatusNotFound {
+				t.Fatalf("POST %s: status = %d, want %d", tc.url, rec.Code, http.StatusNotFound)
 			}
 			body := rec.Body.String()
 			if !strings.Contains(body, tc.wantMsg) {

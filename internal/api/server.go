@@ -290,10 +290,14 @@ func requires(present bool, msg string, h http.HandlerFunc) http.HandlerFunc {
 	}
 }
 
-// writeVMManagerError maps a backend error to a status: 503 while libvirt is
-// unreachable, 501 for an unsupported operation, 500 otherwise.
+// writeVMManagerError maps a backend error to a status: 404 for a VM that does
+// not exist, 503 while libvirt is unreachable, 501 for an unsupported
+// operation, 500 otherwise.
 func writeVMManagerError(w http.ResponseWriter, action string, err error) {
 	status := http.StatusInternalServerError
+	if errors.Is(err, hypervisor.ErrVMNotFound) {
+		status = http.StatusNotFound
+	}
 	if errors.Is(err, vm.ErrNotConnected) {
 		status = http.StatusServiceUnavailable
 	}
